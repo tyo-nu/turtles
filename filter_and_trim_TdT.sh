@@ -11,11 +11,11 @@ starting_dir=$PWD
 
 module load fastqc
 
-# Each NGS run is stored in a separate folder in run_dir
+# Each NGS run is assumed to be stored in a folder in run_dir
 run_dir="my_path_to_rundir"
 
 # This is the only part that changes between runs
-data_dir="${run_dir}/Co_01"
+data_dir="${run_dir}/my_ngs_run"
 
 for dir in "${data_dir}/"*/ ; do
 

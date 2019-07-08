@@ -1,5 +1,6 @@
 __pycache__
 
-turtles_utils_old.py
-
 Notebooks/.ipynb_checkpoints
+
+# Older functions and methods that aren't in source control at all
+turtles_utils_old.py

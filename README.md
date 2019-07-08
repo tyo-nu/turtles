@@ -21,7 +21,7 @@ input Co2+ pulse to within three minutes. TURTLES has at least 200-fold better t
 recording techniques.
 
 ### Layout
-For the shell script used to cut and trim all NGS sequences, see filter_and_trim_TdT.sh.
+For the shell script used to cut and trim all NGS sequences, see filter_and_trim_TdT.sh. It requires fastqc and cutadapt (v1.16) to be installed.
 
 For Jupyter notebooks, which were used to make most of the Figures, see the Notebooks directory. Each notebook's filename lists the 
 figures in that notebook.

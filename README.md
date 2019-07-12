@@ -1,6 +1,33 @@
 # turtles
 TURTLES: Time-sensitive Untemplated Recording using TdT for Local Environmental Signals
 
+### Getting Started
+
+Clone this repo using
+
+`git clone https://github.com/tyo-nu/turtles`
+
+Then, make a virtual environment (either using venv or Conda) and do
+
+`pip install -r requirements.txt`
+
+Then, make sure you are in the turtles/ directory and run
+
+`pytest`
+
+to run all tests.
+
+### Layout
+
+* filter_and_trim_TdT.sh - shell script used to cut and trim all NGS sequences. It requires fastqc and cutadapt (v1.16) to be installed.
+
+* Notebooks/ - Jupyter notebooks which were used to make most of the Figures. Each notebook's filename lists the 
+figures in that notebook.
+
+* turtles_utils.py - contains the source code for the custom methods used in the notebooks.
+
+* tests/ - directory for tests. Tests are written in test_turtles_utils.py using pytest. Test datafiles in the tests/ directory were taken from the 0 control, 1 control, and 20 min switch (0 to 1) fastq files for Cobalt (paper Figure 2). Only the first 1000 sequences were copied to each test datafile so that tests run more quickly.
+
 ### Paper
 
 This repository provides all the code and notebooks used in [this paper](https://www.biorxiv.org/content/10.1101/634790v3), 
@@ -19,16 +46,6 @@ environmental signals (TURTLES). We show that we can determine the time of Co2+ 
 60-minute period. Further, TURTLES has the capability to record multiple fluctuations. We can estimate the rise and fall of an 
 input Co2+ pulse to within three minutes. TURTLES has at least 200-fold better temporal resolution than all previous DNA-based 
 recording techniques.
-
-### Layout
-For the shell script used to cut and trim all NGS sequences, see filter_and_trim_TdT.sh. It requires fastqc and cutadapt (v1.16) to be installed.
-
-For Jupyter notebooks, which were used to make most of the Figures, see the Notebooks directory. Each notebook's filename lists the 
-figures in that notebook.
-
-Finally, see turtles_utils.py, which contains the source code for the custom methods used in the notebooks.
-
-Unit tests in progress.
 
 ### Cite
 Bhan, N. J. et al. Recording temporal data onto DNA with minutes resolution. bioRxiv 634790 (2019). doi:10.1101/634790

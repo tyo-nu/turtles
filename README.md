@@ -7,7 +7,7 @@ Clone this repo using
 
 `git clone https://github.com/tyo-nu/turtles`
 
-Then, make a virtual environment (either using venv or Conda) and do
+Then, make a virtual environment. If using Conda, make sure to first install pip (`conda install pip`). Then, do
 
 `pip install -r requirements.txt`
 
@@ -16,6 +16,8 @@ Then, make sure you are in the turtles/ directory and run
 `pytest`
 
 to run all tests.
+
+Note: To import the turtles package, make sure the directory containing the turtles folder is in your PATH.
 
 ### Layout
 

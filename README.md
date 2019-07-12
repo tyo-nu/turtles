@@ -17,6 +17,8 @@ Then, make sure you are in the turtles/ directory and run
 
 to run all tests.
 
+Note: To import the turtles package, make sure the directory containing the turtles folder is in your PATH.
+
 ### Layout
 
 * filter_and_trim_TdT.sh - shell script used to cut and trim all NGS sequences. It requires fastqc and cutadapt (v1.16) to be installed.

@@ -1,5 +1,11 @@
+# File caches
 __pycache__
+.pytest_cache
 
+# VS Code files
+.vscode
+
+# Jupyter notebook checkpoints
 Notebooks/.ipynb_checkpoints
 
 # Older functions and methods that aren't in source control at all

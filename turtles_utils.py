@@ -59,7 +59,43 @@ def read_seqs(data_dir, filename_end='trimmed.fq', degen=0, cutoff=0.0,
     -------
     seqs : dict
         Key is directory (condition) name, value is a list of further
-        processed sequences given input options."""
+        processed sequences given input options.
+
+    See Also
+    --------
+    cutoff_float
+    get_norm_len_base_counts
+
+    """
+
+    if degen:
+        if isinstance(degen, float):
+            if degen.is_integer():
+                degen = int(degen)
+            else:
+                raise ValueError('degen should be a whole number.')
+
+        if degen < 0:
+            raise ValueError('degen should be non-negative.')
+
+    if cutoff:
+        if isinstance(cutoff, int):
+            cutoff = float(cutoff)
+
+        if cutoff < 0:
+            raise ValueError('cutoff should be non-negative.')
+
+    if p_discard:
+        if isinstance(p_discard, int):
+            p_discard = float(p_discard)
+
+        if p_discard < 0 or p_discard > 1:
+            raise ValueError('p_discard should be between 0.0 and 1.0, \
+                              inclusive.')
+
+    if cond_text:
+        if isinstance(cond_text, str):
+            cond_text = [cond_text]
 
     seqs = {}
 
@@ -127,10 +163,86 @@ def read_seqs(data_dir, filename_end='trimmed.fq', degen=0, cutoff=0.0,
     return seqs
 
 
+def cutoff_float(seq, cutoff):
+    """Probabilistically cuts off a whole number of bases from the end of a
+    sequence.
+
+    Parameters
+    ----------
+    seq : str
+        Nucleotide sequence to cut bases off of.
+    cutoff : float
+        Non-whole number of bases to cut off, on average.
+
+    Returns
+    -------
+    seq : str
+        Processed sequence with bases cut off of the end.
+
+    """
+
+    floor = int(math.floor(cutoff))
+    ceil = int(math.ceil(cutoff))
+    p_floor = cutoff - floor
+
+    use_floor = (random.random() < p_floor)
+
+    if use_floor:
+        seq = seq[:-floor]
+    else:
+        seq = seq[:-ceil]
+
+    return seq
+
+
+def get_seq_intervals(seqs, positions):
+    """Get bases at specified locations within sequences.
+
+    Parameters
+    ----------
+    seqs : dict
+        Key is directory (condition) name, value is a list of further
+        processed sequences given input options.
+    positions : list of int tuples and/or negative ints
+        Base positions to parse each seq. For example, [(1, 5), (11, 15)]
+        would return a list of two dicts, one for seqs from bp 1-5, the other
+        for seqs from bp 11-15. If just an int, goes from that position to the
+        end of the sequence, e.g. -5 would get the last 5 bases. 1-indexed and
+        bounds are inclusive.
+
+    Returns
+    -------
+    seq_intervals : list of dicts
+        Key is condition, value is list of new seqs.
+
+    See Also
+    --------
+    read_seqs
+
+    """
+
+    seq_intervals = [{} for _ in range(len(positions))]
+
+    for directory in seqs:
+        for i, pos in enumerate(positions):
+            if isinstance(pos, tuple):
+                seq_intervals[i][directory] = [seq[(pos[0] - 1): pos[1]] for
+                                               seq in seqs[directory]]
+            elif isinstance(pos, int):
+                if pos > 0:
+                    pos -= 1
+                seq_intervals[i][directory] = [seq[(pos):] for seq in
+                                               seqs[directory]]
+            else:
+                raise Exception('Positions should be ints and/or tuples of '
+                                'positive integers.')
+
+    return seq_intervals
+
+
 def get_norm_len_base_counts(seqs, num_bins=1000):
-    """Read R1 fastq files in subdirectories in data_dir. In each file, count
-    the number of A, C, G, and T at each position. Then normalize counts by
-    the sequence's length by binning.
+    """For each condition in seqs dict, count the number of A, C, G, and T at
+    each position. Then normalize counts by the sequence's length by binning.
 
     Parameters
     ----------
@@ -150,14 +262,12 @@ def get_norm_len_base_counts(seqs, num_bins=1000):
     --------
     read_seqs
 
-    Notes
-    -----
-    This function has been optimized for binning which is why the intervals
-    are all precalculated."""
+    """
 
     counts_dict = {}
 
     bases = ['A', 'C', 'G', 'N', 'T']
+
     bins = np.arange(0, 1 + 1 / num_bins, 1 / num_bins)
 
     for directory in seqs:
@@ -166,28 +276,7 @@ def get_norm_len_base_counts(seqs, num_bins=1000):
 
         for seq in seqs[directory]:
 
-            seq_fracs = [i / len(seq) for i in range(len(seq))]
-
-            bin_ind = np.digitize(seq_fracs, bins) - 1  # Doesn't add last bin
-            bin_ind = np.append(bin_ind, num_bins - 1)  # Add last bin
-
-            # Calculate binning intervals for each base in each sequence
-            inds = {base: [] for base in ['A', 'C', 'G', 'T', 'N']}
-            prev_base = seq[0]
-            i_init = 0
-            if len(seq) > 1:
-                for i, base in enumerate(seq[1:]):
-                    i = i + 1
-                    if base != prev_base:
-                        inds[prev_base].append((bin_ind[i_init], bin_ind[i]))
-                        i_init = i
-
-                    if i == len(seq) - 1:
-                        inds[base].append((bin_ind[i_init], num_bins))
-
-                    prev_base = seq[i]
-            else:
-                inds[seq[0]].append((0, num_bins))
+            inds = bin_seq(seq, bins)
 
             # Given bin interval (e.g. bins 10 to 20) for a given base in this
             # sequence, add 1 to those bins for that base in counts_dict
@@ -200,37 +289,57 @@ def get_norm_len_base_counts(seqs, num_bins=1000):
     return counts_dict
 
 
-def cutoff_float(seq, cutoff):
-    """Probabilistically cuts off a whole number of bases from the end of a
-    sequence.
+def bin_seq(seq, bins):
+    """Divides the bases of a sequence into the number of bins specified.
+    Returns the bin indices for each base.
 
     Parameters
     ----------
-    seq : str
-        Nucleotide sequence to cut bases off of.
-    cutoff : float
-        Non-whole number of bases to cut off, on average.
+    seq : list
+        Ordered list of bases in sequence.
+    bins : np.arange
+        Array of bin indices (e.g. array([0, 1, 2, ..., 997, 998, 999])).
 
-    Returns
-    -------
-    seq : str
-        Processed sequence with bases cut off of the end."""
+    See Also
+    --------
+    get_norm_len_base_counts
 
-    floor = int(math.floor(cutoff))
-    ceil = int(math.ceil(cutoff))
-    p_floor = cutoff - floor
+    Notes
+    -----
+    This function has been optimized for binning which is why we precalculate
+    intervals rather than counting bases in each individual bin on the fly.
 
-    use_floor = (random.random() < p_floor)
+    """
 
-    if use_floor:
-        seq = seq[:-floor]
+    num_bins = len(bins)
+
+    seq_fracs = [i / len(seq) for i in range(len(seq))]
+
+    bin_ind = np.digitize(seq_fracs, bins, right=True)
+
+    inds = {base: [] for base in ['A', 'C', 'G', 'T', 'N']}
+    prev_base = seq[0]
+    i_init = 0
+
+    if len(seq) > 1:
+        for i, base in enumerate(seq[1:]):
+            i = i + 1
+            if base != prev_base:
+                inds[prev_base].append((bin_ind[i_init], bin_ind[i]))
+                i_init = i
+
+            if i == len(seq) - 1:
+                inds[base].append((bin_ind[i_init], num_bins))
+
+            prev_base = seq[i]
+
     else:
-        seq = seq[:-ceil]
+        inds[seq[0]].append((0, num_bins))
 
-    return seq
+    return inds
 
 
-def calc_norm_len_base_pcts(counts_dict):
+def calc_norm_len_base_pcts(counts_dict, exclude_n=True):
     """Takes a dict of counts and converts them into percents of A, C, G, and
     T at each bin. Percents reported as fractions (0 --> 1 space).
 
@@ -239,19 +348,29 @@ def calc_norm_len_base_pcts(counts_dict):
     counts_dict : dict
         Contains an array of counts at each bin (indexed) for each condition.
         Structure is {'directory_name': {'Base': [#, #, ..., #]}}.
+    exclude_n : bool (default: True)
+        If True, calculate A, C, G, and T percent relative to total A, C, G,
+        and T. Othwerise, calculate A, C, G, T, and N percent relative to total
+        number of all base calls.
 
     Returns
     -------
     pcts_dict : dict
         Contains an array of percents at each bin (indexed) for each condition.
-        Structure is {'directory_name': {'Base': [#, #, ..., #]}}."""
+        Structure is {'directory_name': {'Base': [#, #, ..., #]}}.
+
+    """
 
     pcts_dict = {}
-    bases = ['A', 'C', 'G', 'N', 'T']
+
+    if exclude_n:
+        bases = ['A', 'C', 'G', 'T']
+    else:
+        bases = ['A', 'C', 'G', 'T', 'N']
 
     for condition in counts_dict:
-        total_counts = sum([np.array(counts_dict[condition][base]) 
-                           for base in bases])
+        total_counts = sum([np.array(counts_dict[condition][base])
+                            for base in bases])
         total_counts = np.array(total_counts)
 
         pcts_dict[condition] = {}
@@ -285,10 +404,16 @@ def get_total_base_pcts(seqs, exclude_n=True):
 
     See Also
     --------
-    read_seqs"""
+    read_seqs
+
+    """
 
     pcts_dict = {}
-    bases = ['A', 'C', 'G', 'T', 'N']
+
+    if exclude_n:
+        bases = ['A', 'C', 'G', 'T']
+    else:
+        bases = ['A', 'C', 'G', 'T', 'N']
 
     for directory in seqs:
 
@@ -297,14 +422,11 @@ def get_total_base_pcts(seqs, exclude_n=True):
         for seq in seqs[directory]:
 
             for base in seq:
-                base_n[base] += 1
+                if base in bases:
+                    base_n[base] += 1
 
-        if exclude_n:
-            total = sum([base_n[base] for base in bases[:-1]])
-            pcts_n = {base: base_n[base] / total for base in bases[:-1]}
-        else:
-            total = sum([base_n[base] for base in bases])
-            pcts_n = {base: base_n[base] / total for base in bases}
+        total = sum([base_n[base] for base in bases])
+        pcts_n = {base: base_n[base] / total for base in bases}
 
         pcts_dict[directory] = pcts_n
 
@@ -313,417 +435,142 @@ def get_total_base_pcts(seqs, exclude_n=True):
     return pcts_dict
 
 
-def get_seq_intervals(seqs, positions):
-    """Get bases at specified locations within sequences.
+def calc_aitchison_distance(pcts_dict):
+    """Transforms compositional data into Aitchison space.
 
     Parameters
     ----------
-    seqs : dict
-        Key is directory (condition) name, value is a list of further
-        processed sequences given input options.
-    positions : list of int tuples and/or negative ints
-        Base positions to parse each seq. For example, [(1, 5), (11, 15)]
-        would return a list of two dicts, one for seqs from bp 1-5, the other
-        for seqs from bp 11-15. If just an int, goes from that position to the
-        end of the sequence, e.g. -5 would get the last 5 bases.
+    pcts_dict : dict
+        Key is condition (directory), value is dict {base: percent}. Percent is
+        in fractional form (0 to 1).
 
     Returns
     -------
-    seq_intervals : list of dicts
-        Key is condition, value is list of new seqs.
+    clr_data : dict
+        Key is condition (directory), value is dict {base: Aitchison distance}.
 
     See Also
     --------
-    read_seqs"""
+    get_total_base_percents
 
-    seq_intervals = [{} for _ in range(len(positions))]
+    """
 
-    for directory in seqs:
-        for i, pos in enumerate(positions):
-            if isinstance(pos, tuple):
-                seq_intervals[i][directory] = [seq[(pos[0] - 1): pos[1]] for
-                                               seq in seqs[directory]]
-            elif isinstance(pos, int):
-                seq_intervals[i][directory] = [seq[(pos):] for seq in
-                                               seq[directory]]
-            else:
-                raise Exception('Positions should be ints and/or tuples of '
-                                'positive integers.')
+    total_counts = {}
+    bases = ['A', 'C', 'G', 'T']
 
-    return seqs
+    for condition in pcts_dict:
+        # CLR transformation requires %A, C, G, T to be a column vector
+        total_counts[condition] = \
+            np.column_stack([pcts_dict[condition][base] for base in bases])
+
+    clr_data = {}
+    for condition in total_counts:
+        clr_data[condition] = {}
+        clr_matrix = clr(total_counts[condition])
+        for i, base in enumerate(bases):
+            clr_data[condition][base] = clr_matrix[:, i]
+
+    return clr_data
 
 
-def get_length_dists(seqs):
-    """Read R1 fastq files in subdirectories in data_dir. In each file, count
-    the number of sequences of each length.
+def closure(mat):
+    """Copied from skbio.stats.composition.closure since I had issues
+    installing the skbio package on Windows. Performs closure to ensure that
+    all elements add up to 1.
 
     Parameters
     ----------
-    seqs : dict
-        Key is directory (condition) name, value is a list of further
-        processed sequences given input options.
+    mat : array_like
+       a matrix of proportions where
+       rows = compositions
+       columns = components
 
     Returns
     -------
-    len_dists : dict
-        Contains the number of sequences for a given length for each condition.
-        Structure is {'directory_name': [num_0_bp_seqs, num_1_bp_seqs, etc.]}.'
+    array_like, np.float64
+       A matrix of proportions where all of the values
+       are nonzero and each composition (row) adds up to 1
 
-    See Also
+    Raises
+    ------
+    ValueError
+       Raises an error if any values are negative.
+    ValueError
+       Raises an error if the matrix has more than 2 dimension.
+    ValueError
+       Raises an error if there is a row that has all zeros.
+
+    Examples
     --------
-    read_seqs
-    parse_fastq_lengths
-    calc_cum_length_dists"""
+    >>> import numpy as np
+    >>> from skbio.stats.composition import closure
+    >>> X = np.array([[2, 2, 6], [4, 4, 2]])
+    >>> closure(X)
+    array([[ 0.2,  0.2,  0.6],
+           [ 0.4,  0.4,  0.2]])
 
-    len_dists = {}
+    """
 
-    for directory in seqs:
+    mat = np.atleast_2d(mat)
 
-        lens = [0 for _ in range(200)]  # Assume 200 is max length
+    if np.any(mat < 0):
+        raise ValueError("Cannot have negative proportions")
 
-        for seq in seqs[directory]:
-            lens[len(seq)] += 1
+    if mat.ndim > 2:
+        raise ValueError("Input matrix can only have two dimensions or less")
 
-        len_dists[directory] = lens
+    if np.all(mat == 0, axis=1).sum() > 0:
+        raise ValueError("Input matrix cannot have rows with all zeros")
 
-    return len_dists
+    mat = mat / mat.sum(axis=1, keepdims=True)
+
+    return mat.squeeze()
 
 
-def calc_cum_length_dists(len_dists):
-    """Takes length distribution data and calculates the cumulative length
-    distribution from the regular length distribution. Does this for each
-    condition, replicate pair (directory).
+def clr(mat):
+    r"""Copied from skbio.stats.composition.clr since I had issues installing
+    the skbio package on Windows. Performs centre log ratio transformation.
+    This function transforms compositions from Aitchison geometry to the real
+    space. The :math:`clr` transform is both an isometry and an isomorphism
+    defined on the following spaces
+
+    :math:`clr: S^D \rightarrow U`
+
+    where :math:`U=\{x :\sum\limits_{i=1}^D x = 0 \; \forall x \in
+        \mathbb{R}^D\}`
+
+    It is defined for a composition :math:`x` as follows:
+    .. math::
+        clr(x) = \ln\left[\frac{x_1}{g_m(x)}, \ldots, \frac{x_D}{g_m(x)}\right]
+
+    where :math:`g_m(x) = (\prod\limits_{i=1}^{D} x_i)^{1/D}` is the geometric
+        mean of :math:`x`.
 
     Parameters
     ----------
-    len_dists : dict
-        Contains the number of sequences for a given length for each condition.
-        Structure is {'directory_name': [num_1_bp_seqs, num_2_bp_seqs, etc.]}.'
-
+    mat : array_like, float
+       a matrix of proportions where
+       rows = compositions and
+       columns = components
     Returns
     -------
-    cum_len_dists: dict
-        A dict that stores a list of cumulative percents for each directory.
-
-    See Also
+    numpy.ndarray
+         clr transformed matrix
+    Examples
     --------
-    get_length_dists"""
-
-    cum_len_dists = {}
-
-    for directory in len_dists:
-        len_dist = np.array(len_dists[directory])
-        pct_counts = 100 * len_dist / sum(len_dist)
-
-        cum_counts = []
-        cum_val = 0
-        for pct in pct_counts:
-            cum_val += pct
-            cum_counts.append(cum_val)
-
-        cum_len_dists[directory] = cum_counts
-
-    return cum_len_dists
-
-
-def generate_length_df(len_dists, condition_dict, rep_dict,
-                       zero_control_conds=None, one_control_conds=None):
-    """Normalize length counts (in len_dists) to percents and format into a
-    DataFrame for plotting and further analysis.
-
-    Parameters
-    ----------
-    len_dists : dict
-        Contains the number of sequences for a given length for each condition.
-        Structure is {'directory_name': [num_1_bp_seqs, num_2_bp_seqs, etc.]}.'
-    condition_dict : dict
-        Maps directory name to more readable condition name. Format is
-        {directory: condition_name}.
-    rep_dict : dict
-        Maps directory name to replicate number. Format is {directory: #}.
-    zero_control_conds : list
-        List of condition (directory) prefixes of those conditions that are to
-        be labeled as the zero-signal control. Used for signal calculation.
-    one_control_conds : list (default: None)
-        List of condition (directory) prefixes of those conditions that are to
-        be labeled as the one-signal control. Used for signal calculation.
-
-    Returns
-    -------
-    len_data : pandas.DataFrame
-        Contains length distribution data. Columns are: 'Condition',
-        'Replicate', 'Signal', 'Length', 'Count', and '% Count'.
-
-    See Also
-    --------
-    get_len_dists
-    generate_aitch_df"""
-
-    len_data = pd.DataFrame()
-
-    lengths = range(200)  # Assume longest seq is no longer than 200 bases
-
-    lens_col = []
-    len_counts_col = []
-    norm_counts_col = []
-    cond_col = []
-    rep_col = []
-    control_signal_val_col = []
-
-    for directory in len_dists:
-        lens_col += lengths
-
-        len_counts = len_dists[directory]
-        len_counts_col += len_counts
-
-        norm_counts = list(np.array(len_counts) / sum(len_counts))
-        norm_counts_col += norm_counts
-
-        cond = condition_dict[directory]
-        rep = rep_dict[directory]
-
-        cond_col += [cond] * len(lengths)
-        rep_col += [rep] * len(lengths)
-
-        if zero_control_conds and directory in zero_control_conds:
-            control_signal_val = 0
-        elif one_control_conds and directory in one_control_conds:
-            control_signal_val = 1
-        else:
-            control_signal_val = np.nan
-
-        control_signal_val_col += [control_signal_val] * len(lengths)
-
-    len_data['Condition'] = cond_col
-    len_data['Replicate'] = rep_col
-    len_data['Signal'] = control_signal_val_col
-    len_data['Length'] = lens_col
-    len_data['Count'] = len_counts_col
-    len_data['% Count'] = norm_counts_col
-
-    return len_data
-
-
-def parse_fastq_lengths(len_dists, expt_time=60, shift=0):
-    """For each condition in the overall data_dir, look at each R1 fastq file
-    (all sequences, not deduplicated or trimmed based on length), and tally
-    the lengths of all the sequences. Then calculate mean, std length.
-
-    Parameters
-    ----------
-    len_dists : dict
-        Contains the number of sequences for a given length for each condition.
-        Structure is {'directory_name': [num_1_bp_seqs, num_2_bp_seqs, etc.]}.
-    expt_time : numeric (default: 60)
-        Length of the experiment (in minutes).
-    shift : int (default: 0)
-        See enumerate_indices_from_counts().
-
-    Returns
-    -------
-    averages : pd.DataFrame
-        Pandas DataFrame with fastq length information for each condition.
-        Columns are 'Directory', 'Mean' (length), 'Std Devs' (length), and
-        'Rate (nt/min)'.
-
-    See Also
-    --------
-    get_length_dists
-    calc_switch_bins"""
-
-    conds = []
-    means = []
-    stds = []
-
-    for cond in len_dists:
-        len_counts = len_dists[cond]
-        lengths = enumerate_indices_from_counts(len_counts, shift=shift)
-        conds.append(cond)
-        means.append(np.mean(lengths))
-        stds.append(np.std(lengths))
-
-    averages = pd.DataFrame()
-    averages['Directory'] = conds
-    averages['Mean'] = means
-    averages['Std Devs'] = stds
-
-    averages['Rate (nt/min)'] = np.array(averages['Mean']) / expt_time
-
-    return averages
-
-
-def enumerate_indices_from_counts(counts, shift=0):
-    """Take a list, where result is specified by index and number of those
-    results is specified by the list value, and enumerate all values. For
-    example, the list [2, 3, 1] would become [0, 0, 1, 1, 1, 2].
-
-    Parameters
-    ----------
-    counts : list
-        List of counts, where index specifies the result being counted.
-    shift : int (default: 0)
-        Added to the index value to determine result. Most useful when counts
-        are 1-indexed rather than 0-indexed (i.e. by setting shift to 1).
-
-    Returns
-    -------
-    enumerated_list : list
-        List of enumerated values."""
-
-    enumerated_list = []
-    for index, count in enumerate(counts):
-        result = index + shift
-        results = [result] * count
-        enumerated_list += results
-
-    return enumerated_list
-
-
-def calc_switch_bins(averages, data_df, mode='01'):
-    """Assumes that we want to use the normalized 0 --> 1 signal in data_df
-    rather than the norm % difference. Assumes 0 --> 1 signal is precalculated
-    and tabulated in data_df in 'Signal' column.
-
-    Parameters
-    ----------
-    averages : pd.DataFrame
-        Pandas DataFrame with fastq length information for each condition.
-        Columns are 'Directory', 'Mean' (length), 'Std Devs' (length), and
-        'Rate (nt/min)'.
-    data_df : pd.DataFrame
-        Should contain columns 'Filename' and 'Signal'.
-    mode : str
-        Determines which way we are switching (from 0 to 1 or from 1 to 0).
-        Also, will look for this string to mark switch conditions. For example,
-        if mode == '01', then all rows in data_df with '01' in Condition will
-        be assumed to be switching experiments.
-
-    Returns
-    -------
-    averages : pd.DataFrame
-        Updated input averages DataFrame with 'Switch Bin' column.
-
-    See Also
-    --------
-    parse_fastq_lengths
-    calc_switch_bin
-    calc_switch_times"""
-
-    directories = list(averages.Directory)
-    switch_bin_col = []
-
-    for directory in directories:
-        sub_data_df = data_df[data_df.Directory == directory]
-        signals = np.array(sub_data_df['Signal'])
-
-        switch_bin = calc_switch_bin(signals, mode=mode)
-        switch_bin_col.append(switch_bin)
-
-    averages['Switch Bin'] = switch_bin_col
-
-    return averages
-
-
-def calc_switch_bin(signals, mode='01'):
-    """Find two bin interval which contains 0.50 signal. Then interpolate
-    between those two bins to find the exact switch bin. For example, if
-    signals array is [0, 0.3, 0.7, 1] (four bins), then switch bin would be
-    calculated as 1.5.
-
-    Parameters
-    ----------
-    signals : np.array
-        1-D array of signal values.
-    mode : str
-        Determines which way we are switching (from 0 to 1 or from 1 to 0).
-
-    Returns
-    -------
-    switch_bin : float
-        Index (bin) in signals at which signal crosses 0.50 threshold. This
-        value is interpolated between the two bins around 0.50.
-
-    See Also
-    --------
-    calc_switch_bins"""
-
-    switch_bin = None
-
-    for index, signal in enumerate(signals):
-        if mode == '01' and signal > 0.5:
-            # Switch bins found - interpolate between them
-            bin_upper = index
-            bin_lower = index - 1
-            m = signals[bin_upper] - signals[bin_lower]
-            x = bin_lower + (0.5 - signals[bin_lower]) / m
-            switch_bin = x + 1
-            break
-        elif mode == '10' and signal < 0.5:
-            # Switch bins found - interpolate between them
-            bin_upper = index - 1
-            bin_lower = index
-            m = signals[bin_lower] - signals[bin_upper]
-            x = bin_upper + (0.5 - signals[bin_upper]) / m
-            switch_bin = x + 1
-            break
-
-    if not switch_bin or switch_bin < 0:
-        switch_bin = np.nan
-
-    return switch_bin
-
-
-def calc_switch_times(averages, num_bins=1000, start_control_conds=None,
-                      end_control_conds=None, t_expt=60):
-    """Calculate switch times for 01 or 10 (does not support more than one
-    switch). If no controls for start and end are specified, assumes constant
-    rate throughout. However, if controls are specified, assumes constant 0
-    rate and constant (but potentially different) 1 rate (see methods in paper
-    for details).
-
-    Parameters
-    ----------
-    averages : pd.DataFrame
-        Pandas DataFrame with fastq length information for each condition.
-        Columns are 'Directory', 'Mean' (length), 'Std Devs' (length),
-        'Rate (nt/min)', and 'Switch Bin'.
-    num_bins : int (default: 1000)
-        Number of bins sequences were binned into.
-    start_control_conds : list (default: None)
-        Name of the conditions in averages.Directory that are the 1 control if
-        switching from 1 --> 0 or the 0 control if switching from 0 --> 1.
-    end_control_conds : list (default: None)
-        Name of the conditions in averages.Directory that are the 0 control if
-        switching from 1 --> 0 or the 1 control if switching from 0 --> 1.
-    t_expt : numeric (default: 60)
-        Length of the experiment (in minutes).
-
-    Returns
-    -------
-    averages : pd.DataFrame
-        Updated input averages DataFrame with 'Switch Time' column.
-
-    See Also
-    --------
-    calc_switch_bins"""
-
-    if start_control_conds and end_control_conds:
-        r_start_df = averages[averages['Directory'].isin(start_control_conds)]
-        r_start = r_start_df['Rate (nt/min)'].mean()
-
-        r_end_df = averages[averages['Directory'].isin(end_control_conds)]
-        r_end = r_end_df['Rate (nt/min)'].mean()
-
-        alpha = r_start / r_end
-
-        num = alpha * t_expt
-        denom = (num_bins / averages['Switch Bin'] + alpha - 1)
-        averages['Switch Time'] = num / denom
-
-    else:
-        averages['Switch Time'] = (averages['Switch Bin'] / num_bins * t_expt)
-
-    return averages
+    >>> import numpy as np
+    >>> from skbio.stats.composition import clr
+    >>> x = np.array([.1, .3, .4, .2])
+    >>> clr(x)
+    array([-0.79451346,  0.30409883,  0.5917809 , -0.10136628])
+
+    """
+
+    mat = closure(mat)
+    lmat = np.log(mat)
+    gm = lmat.mean(axis=-1, keepdims=True)
+
+    return (lmat - gm).squeeze()
 
 
 def generate_aitch_df(pcts_dict, clr_data, condition_dict, rep_dict,
@@ -769,7 +616,9 @@ def generate_aitch_df(pcts_dict, clr_data, condition_dict, rep_dict,
     --------
     calc_norm_len_base_pcts : can generate pcts_dict
     calc_aitchison_distance : can generate clr_data
-    calc_signal : adds signal column to df"""
+    calc_signal : adds signal column to df
+
+    """
 
     data = pd.DataFrame()
     bases = ['A', 'C', 'G', 'T']
@@ -903,11 +752,13 @@ def calc_signal(data, zero_control_conds, one_control_conds,
     Returns
     -------
     data : pd.DataFrame
-        Updated input data DataFrame with 'Signal' column.
+        Updated input data DataFrame with 'Aitch Fraction' and 'Signal' column.
 
     See Also
     --------
-    generate_aitch_df"""
+    generate_aitch_df
+
+    """
 
     n_conditions = len(data.Directory.unique())
 
@@ -952,125 +803,424 @@ def calc_signal(data, zero_control_conds, one_control_conds,
     return data
 
 
-def calc_aitchison_distance(pcts_dict):
-    """Transforms compositional data into Aitchison space.
+def get_length_dists(seqs, max_len=200):
+    """Read R1 fastq files in subdirectories in data_dir. In each file, count
+    the number of sequences of each length.
 
     Parameters
     ----------
-    pcts_dict : dict
-        Key is condition (directory), value is dict {base: percent}. Percent is
-        in fractional form (0 to 1).
+    seqs : dict
+        Key is directory (condition) name, value is a list of further
+        processed sequences given input options.
+    max_len : int
+        Maximum sequence length you expect to see in all your data.
 
     Returns
     -------
-    clr_data : dict
-        Key is condition (directory), value is dict {base: Aitchison distance}.
+    len_dists : dict
+        Contains the number of sequences for a given length for each condition.
+        Structure is {'directory_name': [num_0_bp_seqs, num_1_bp_seqs, etc.]}.'
 
     See Also
     --------
-    get_total_base_percents"""
+    read_seqs
+    parse_fastq_lengths
+    calc_cum_length_dists
 
-    total_counts = {}
-    bases = ['A', 'C', 'G', 'T']
-
-    for condition in pcts_dict:
-        # CLR transformation requires %A, C, G, T to be a column vector
-        total_counts[condition] = \
-            np.column_stack([pcts_dict[condition][base] for base in bases])
-
-    clr_data = {}
-    for condition in total_counts:
-        clr_data[condition] = {}
-        clr_matrix = clr(total_counts[condition])
-        for i, base in enumerate(bases):
-            clr_data[condition][base] = clr_matrix[:, i]
-
-    return clr_data
-
-
-def closure(mat):
     """
-    NOTE:
-    Copied from skbio.stats.composition.closure since I had issues installing
-    the skbio package on Windows.
 
-    Performs closure to ensure that all elements add up to 1.
+    len_dists = {}
+
+    for directory in seqs:
+
+        lens = [0 for _ in range(max_len + 1)]
+
+        for seq in seqs[directory]:
+            lens[len(seq)] += 1
+
+        len_dists[directory] = lens
+
+    return len_dists
+
+
+def calc_cum_length_dists(len_dists):
+    """Takes length distribution data and calculates the cumulative length
+    distribution from the regular length distribution. Does this for each
+    condition, replicate pair (directory).
+
     Parameters
     ----------
-    mat : array_like
-       a matrix of proportions where
-       rows = compositions
-       columns = components
+    len_dists : dict
+        Contains the number of sequences for a given length for each condition.
+        Structure is {'directory_name': [num_1_bp_seqs, num_2_bp_seqs, etc.]}.'
+
     Returns
     -------
-    array_like, np.float64
-       A matrix of proportions where all of the values
-       are nonzero and each composition (row) adds up to 1
-    Raises
-    ------
-    ValueError
-       Raises an error if any values are negative.
-    ValueError
-       Raises an error if the matrix has more than 2 dimension.
-    ValueError
-       Raises an error if there is a row that has all zeros.
-    Examples
+    cum_len_dists: dict
+        A dict that stores a list of cumulative percents for each directory.
+
+    See Also
     --------
-    >>> import numpy as np
-    >>> from skbio.stats.composition import closure
-    >>> X = np.array([[2, 2, 6], [4, 4, 2]])
-    >>> closure(X)
-    array([[ 0.2,  0.2,  0.6],
-           [ 0.4,  0.4,  0.2]])
+    get_length_dists
+
     """
-    mat = np.atleast_2d(mat)
-    if np.any(mat < 0):
-        raise ValueError("Cannot have negative proportions")
-    if mat.ndim > 2:
-        raise ValueError("Input matrix can only have two dimensions or less")
-    if np.all(mat == 0, axis=1).sum() > 0:
-        raise ValueError("Input matrix cannot have rows with all zeros")
-    mat = mat / mat.sum(axis=1, keepdims=True)
-    return mat.squeeze()
+
+    cum_len_dists = {}
+
+    for directory in len_dists:
+        len_dist = np.array(len_dists[directory])
+        pct_counts = len_dist / sum(len_dist)
+
+        cum_counts = []
+        cum_val = 0
+        for pct in pct_counts:
+            cum_val += pct
+            cum_counts.append(cum_val)
+
+        cum_len_dists[directory] = cum_counts
+
+    return cum_len_dists
 
 
-def clr(mat):
-    r"""
-    NOTE:
-    Copied from skbio.stats.composition.clr since I had issues installing the
-    skbio package on Windows.
+def generate_length_df(len_dists, condition_dict, rep_dict,
+                       zero_control_conds=None, one_control_conds=None):
+    """Normalize length counts (in len_dists) to percents and format into a
+    DataFrame for plotting and further analysis.
 
-    Performs centre log ratio transformation.
-    This function transforms compositions from Aitchison geometry to
-    the real space. The :math:`clr` transform is both an isometry and an
-    isomorphism defined on the following spaces
-    :math:`clr: S^D \rightarrow U`
-    where :math:`U=
-    \{x :\sum\limits_{i=1}^D x = 0 \; \forall x \in \mathbb{R}^D\}`
-    It is defined for a composition :math:`x` as follows:
-    .. math::
-        clr(x) = \ln\left[\frac{x_1}{g_m(x)}, \ldots, \frac{x_D}{g_m(x)}\right]
-    where :math:`g_m(x) = (\prod\limits_{i=1}^{D} x_i)^{1/D}` is the geometric
-    mean of :math:`x`.
     Parameters
     ----------
-    mat : array_like, float
-       a matrix of proportions where
-       rows = compositions and
-       columns = components
+    len_dists : dict
+        Contains the number of sequences for a given length for each condition.
+        Structure is {'directory_name': [num_1_bp_seqs, num_2_bp_seqs, etc.]}.'
+    condition_dict : dict
+        Maps directory name to more readable condition name. Format is
+        {directory: condition_name}.
+    rep_dict : dict
+        Maps directory name to replicate number. Format is {directory: #}.
+    zero_control_conds : list
+        List of condition (directory) prefixes of those conditions that are to
+        be labeled as the zero-signal control. Used for signal calculation.
+    one_control_conds : list (default: None)
+        List of condition (directory) prefixes of those conditions that are to
+        be labeled as the one-signal control. Used for signal calculation.
+
     Returns
     -------
-    numpy.ndarray
-         clr transformed matrix
-    Examples
+    len_data : pandas.DataFrame
+        Contains length distribution data. Columns are: 'Condition',
+        'Replicate', 'Signal', 'Length', 'Count', and '% Count'.
+
+    See Also
     --------
-    >>> import numpy as np
-    >>> from skbio.stats.composition import clr
-    >>> x = np.array([.1, .3, .4, .2])
-    >>> clr(x)
-    array([-0.79451346,  0.30409883,  0.5917809 , -0.10136628])
+    get_len_dists
+    generate_aitch_df
+
     """
-    mat = closure(mat)
-    lmat = np.log(mat)
-    gm = lmat.mean(axis=-1, keepdims=True)
-    return (lmat - gm).squeeze()
+
+    len_data = pd.DataFrame()
+
+    lengths = range(200)  # Assume longest seq is no longer than 200 bases
+
+    lens_col = []
+    len_counts_col = []
+    norm_counts_col = []
+    cond_col = []
+    rep_col = []
+    control_signal_val_col = []
+
+    for directory in len_dists:
+        lens_col += lengths
+
+        len_counts = len_dists[directory]
+        len_counts_col += len_counts
+
+        norm_counts = list(np.array(len_counts) / sum(len_counts))
+        norm_counts_col += norm_counts
+
+        cond = condition_dict[directory]
+        rep = rep_dict[directory]
+
+        cond_col += [cond] * len(lengths)
+        rep_col += [rep] * len(lengths)
+
+        if zero_control_conds and directory in zero_control_conds:
+            control_signal_val = 0
+        elif one_control_conds and directory in one_control_conds:
+            control_signal_val = 1
+        else:
+            control_signal_val = np.nan
+
+        control_signal_val_col += [control_signal_val] * len(lengths)
+
+    len_data['Condition'] = cond_col
+    len_data['Replicate'] = rep_col
+    len_data['Signal'] = control_signal_val_col
+    len_data['Length'] = lens_col
+    len_data['Count'] = len_counts_col
+    len_data['% Count'] = norm_counts_col
+
+    return len_data
+
+
+def parse_fastq_lengths(len_dists, expt_time=60, shift=0):
+    """For each condition in the overall data_dir, look at each R1 fastq file
+    (all sequences, not deduplicated or trimmed based on length), and tally
+    the lengths of all the sequences. Then calculate mean, std length.
+
+    Parameters
+    ----------
+    len_dists : dict
+        Contains the number of sequences for a given length for each condition.
+        Structure is {'directory_name': [num_1_bp_seqs, num_2_bp_seqs, etc.]}.
+    expt_time : numeric (default: 60)
+        Length of the experiment (in minutes).
+    shift : int (default: 0)
+        See enumerate_indices_from_counts().
+
+    Returns
+    -------
+    averages : pd.DataFrame
+        Pandas DataFrame with fastq length information for each condition.
+        Columns are 'Directory', 'Mean' (length), 'Std Devs' (length), and
+        'Rate (nt/min)'.
+
+    See Also
+    --------
+    get_length_dists
+    calc_switch_bins
+
+    """
+
+    conds = []
+    means = []
+    stds = []
+
+    for cond in len_dists:
+        len_counts = len_dists[cond]
+        lengths = enumerate_indices_from_counts(len_counts, shift=shift)
+        conds.append(cond)
+        means.append(np.mean(lengths))
+        stds.append(np.std(lengths))
+
+    averages = pd.DataFrame()
+    averages['Directory'] = conds
+    averages['Mean'] = means
+    averages['Std Devs'] = stds
+
+    averages['Rate (nt/min)'] = np.array(averages['Mean']) / expt_time
+
+    return averages
+
+
+def enumerate_indices_from_counts(counts, shift=0):
+    """Take a list, where result is specified by index and number of those
+    results is specified by the list value, and enumerate all values. For
+    example, the list [2, 3, 1] would become [0, 0, 1, 1, 1, 2].
+
+    Parameters
+    ----------
+    counts : list
+        List of counts, where index specifies the result being counted.
+    shift : int (default: 0)
+        Added to the index value to determine result. Most useful when counts
+        are 1-indexed rather than 0-indexed (i.e. by setting shift to 1).
+
+    Returns
+    -------
+    enumerated_list : list
+        List of enumerated values.
+
+    """
+
+    enumerated_list = []
+    for index, count in enumerate(counts):
+        result = index + shift
+        results = [result] * count
+        enumerated_list += results
+
+    return enumerated_list
+
+
+def calc_switch_bins(averages, data_df, mode='01'):
+    """Assumes that we want to use the normalized 0 --> 1 signal in data_df
+    rather than the norm % difference. Assumes 0 --> 1 signal is precalculated
+    and tabulated in data_df in 'Signal' column.
+
+    Parameters
+    ----------
+    averages : pd.DataFrame
+        Pandas DataFrame with fastq length information for each condition.
+        Columns are 'Directory', 'Mean' (length), 'Std Devs' (length), and
+        'Rate (nt/min)'.
+    data_df : pd.DataFrame
+        Should contain columns 'Directory' and 'Signal'.
+    mode : str
+        Determines which way we are switching (from 0 to 1 or from 1 to 0).
+        Also, will look for this string to mark switch conditions. For example,
+        if mode == '01', then all rows in data_df with '01' in Condition will
+        be assumed to be switching experiments.
+
+    Returns
+    -------
+    averages : pd.DataFrame
+        Updated input averages DataFrame with 'Switch Bin' column.
+
+    See Also
+    --------
+    parse_fastq_lengths
+    calc_switch_bin
+    calc_switch_times
+
+    """
+
+    directories = list(averages.Directory)
+    switch_bin_col = []
+
+    for directory in directories:
+        sub_data_df = data_df[data_df.Directory == directory]
+        signals = np.array(sub_data_df['Signal'])
+
+        switch_bin = calc_switch_bin(signals, mode=mode)
+        switch_bin_col.append(switch_bin)
+
+    averages['Switch Bin'] = switch_bin_col
+
+    return averages
+
+
+def calc_switch_bin(signals, mode='01'):
+    """Find two bin interval which contains 0.50 signal. Then interpolate
+    between those two bins to find the exact switch bin. For example, if
+    signals array is [0, 0.3, 0.7, 1] (four bins), then switch bin would be
+    calculated as 1.5.
+
+    Parameters
+    ----------
+    signals : np.array
+        1-D array of signal values.
+    mode : str
+        Determines which way we are switching (from 0 to 1 or from 1 to 0).
+
+    Returns
+    -------
+    switch_bin : float
+        Index (bin) in signals at which signal crosses 0.50 threshold. This
+        value is interpolated between the two bins around 0.50.
+
+    See Also
+    --------
+    calc_switch_bins
+
+    """
+
+    switch_bin = None
+
+    for index, signal in enumerate(signals):
+        if mode == '01' and signal > 0.5:
+            # Switch bins found - interpolate between them
+            bin_upper = index
+            bin_lower = index - 1
+            m = signals[bin_upper] - signals[bin_lower]
+            x = bin_lower + (0.5 - signals[bin_lower]) / m
+            switch_bin = x + 1
+            break
+        elif mode == '10' and signal < 0.5:
+            # Switch bins found - interpolate between them
+            bin_upper = index - 1
+            bin_lower = index
+            m = signals[bin_lower] - signals[bin_upper]
+            x = bin_upper + (0.5 - signals[bin_upper]) / m
+            switch_bin = x + 1
+            break
+
+    if not switch_bin or switch_bin < 0:
+        switch_bin = np.nan
+
+    return switch_bin
+
+
+def calc_switch_times(averages, num_bins=1000, start_control_conds=None,
+                      end_control_conds=None, t_expt=60):
+    """Calculate switch times for 01 or 10 (does not support more than one
+    switch). If no controls for start and end are specified, assumes constant
+    rate throughout. However, if controls are specified, assumes constant 0
+    rate and constant (but potentially different) 1 rate (see methods in paper
+    for details).
+
+    Parameters
+    ----------
+    averages : pd.DataFrame
+        Pandas DataFrame with fastq length information for each condition.
+        Columns are 'Directory', 'Mean' (length), 'Std Devs' (length),
+        'Rate (nt/min)', and 'Switch Bin'.
+    num_bins : int (default: 1000)
+        Number of bins sequences were binned into.
+    start_control_conds : list (default: None)
+        Name of the conditions in averages.Directory that are the 1 control if
+        switching from 1 --> 0 or the 0 control if switching from 0 --> 1.
+    end_control_conds : list (default: None)
+        Name of the conditions in averages.Directory that are the 0 control if
+        switching from 1 --> 0 or the 1 control if switching from 0 --> 1.
+    t_expt : numeric (default: 60)
+        Length of the experiment (in minutes).
+
+    Returns
+    -------
+    averages : pd.DataFrame
+        Updated input averages DataFrame with 'Switch Time' column.
+
+    See Also
+    --------
+    calc_switch_bins
+
+    """
+
+    if start_control_conds and end_control_conds:
+        r_start_df = averages[averages['Directory'].isin(start_control_conds)]
+        r_start = r_start_df['Rate (nt/min)'].mean()
+
+        r_end_df = averages[averages['Directory'].isin(end_control_conds)]
+        r_end = r_end_df['Rate (nt/min)'].mean()
+
+        switch_times = calc_switch_time_w_rates(averages['Switch Bin'],
+                                                num_bins, t_expt, r_start,
+                                                r_end)
+
+        averages['Switch Time'] = switch_times
+
+    else:
+        averages['Switch Time'] = (averages['Switch Bin'] / num_bins * t_expt)
+
+    return averages
+
+
+def calc_switch_time_w_rates(switch_bins, num_bins, t_expt, r_start, r_end):
+    """Uses Equations 5 and 6 in paper to calculate switch time. Accounts for
+    difference in polymerization rates between 0 and 1 conditions.
+
+    Parameters
+    ----------
+    switch_bins : pd.Series
+        Series of switch bin indices.
+    t_expt : numeric
+        Length of experiment (in minutes).
+    r_start : numeric
+        Average rate at the beginning of the reaction.
+    r_end : numeric
+        Average rate at the end of the reaction.
+
+    Returns
+    -------
+    switch_times : pd.Series
+        Series of switch times (minutes).
+
+    """
+
+    alpha = r_start / r_end
+
+    num = alpha * t_expt
+    denom = ((num_bins / switch_bins) + alpha - 1)
+
+    switch_times = num / denom
+
+    return switch_times

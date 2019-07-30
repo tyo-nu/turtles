@@ -18,7 +18,8 @@ from Bio import SeqIO
 
 
 def read_seqs(data_dir, filename_end='trimmed.fq', degen=0, cutoff=0.0,
-              seq_len_req=None, p_discard=0.0, cond_text=None):
+              seq_len_req=None, p_discard=0.0, cond_text=None,
+              exact_cond_text=False):
     """Read trimmed R1 fastq files in subdirectories in data_dir. Options for
     removing degenerate bases in primer, cutting off bases at the end of each
     sequence, only reading sequences of a specified length, and for randomly
@@ -54,6 +55,10 @@ def read_seqs(data_dir, filename_end='trimmed.fq', degen=0, cutoff=0.0,
         If given, searches for these strings within each directory name. If
         none are present, ignores that directory completely. Useful for
         only reading sequences for specific conditions.
+    exact_cond_text : bool (default: False)
+        If True, matches directory name exactly (using cond_text). If false,
+        searches within directory name for cond_text. Discards that condition
+        if not found.
 
     Returns
     -------
@@ -116,7 +121,9 @@ def read_seqs(data_dir, filename_end='trimmed.fq', degen=0, cutoff=0.0,
         if cond_text:
             discard_cond = True
             for cond in cond_text:
-                if cond in directory:
+                if exact_cond_text and cond == directory:
+                    discard_cond = False
+                elif not exact_cond_text and cond in directory:
                     discard_cond = False
             if discard_cond:
                 continue

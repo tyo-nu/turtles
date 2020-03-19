@@ -18,7 +18,8 @@ from Bio import SeqIO
 
 
 def read_seqs(data_dir, filename_end='trimmed.fq', degen=0, cutoff=0.0,
-              seq_len_req=None, p_discard=0.0, cond_text=None):
+              seq_len_req=None, p_discard=0.0, cond_text=None,
+              exact_cond_text=False):
     """Read trimmed R1 fastq files in subdirectories in data_dir. Options for
     removing degenerate bases in primer, cutting off bases at the end of each
     sequence, only reading sequences of a specified length, and for randomly
@@ -54,6 +55,10 @@ def read_seqs(data_dir, filename_end='trimmed.fq', degen=0, cutoff=0.0,
         If given, searches for these strings within each directory name. If
         none are present, ignores that directory completely. Useful for
         only reading sequences for specific conditions.
+    exact_cond_text : bool (default: False)
+        If True, matches directory name exactly (using cond_text). If false,
+        searches within directory name for cond_text. Discards that condition
+        if not found.
 
     Returns
     -------
@@ -116,7 +121,9 @@ def read_seqs(data_dir, filename_end='trimmed.fq', degen=0, cutoff=0.0,
         if cond_text:
             discard_cond = True
             for cond in cond_text:
-                if cond in directory:
+                if exact_cond_text and cond == directory:
+                    discard_cond = False
+                elif not exact_cond_text and cond in directory:
                     discard_cond = False
             if discard_cond:
                 continue
@@ -149,8 +156,8 @@ def read_seqs(data_dir, filename_end='trimmed.fq', degen=0, cutoff=0.0,
                 else:
                     # Cutoff is not a whole number
                     seq = cutoff_float(seq, cutoff)
-                    if len(seq) == 0:
-                        continue
+                    # if len(seq) == 0:
+                    #     continue
 
             if seq_len_req and len(seq) != seq_len_req:
                 continue
@@ -426,6 +433,10 @@ def get_total_base_pcts(seqs, exclude_n=True):
                     base_n[base] += 1
 
         total = sum([base_n[base] for base in bases])
+
+        if total == 0:
+            total = 1
+
         pcts_n = {base: base_n[base] / total for base in bases}
 
         pcts_dict[directory] = pcts_n
@@ -468,7 +479,7 @@ def calc_aitchison_distance(pcts_dict):
         clr_data[condition] = {}
         clr_matrix = clr(total_counts[condition])
         for i, base in enumerate(bases):
-            clr_data[condition][base] = clr_matrix[:, i]
+            clr_data[condition][base] = clr_matrix[i]  # changed from [:, i]
 
     return clr_data
 
@@ -919,7 +930,7 @@ def generate_length_df(len_dists, condition_dict, rep_dict,
 
     len_data = pd.DataFrame()
 
-    lengths = range(200)  # Assume longest seq is no longer than 200 bases
+    lengths = range(201)  # Assume longest seq is no longer than 200 bases
 
     lens_col = []
     len_counts_col = []

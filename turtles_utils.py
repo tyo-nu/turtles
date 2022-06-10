@@ -7,10 +7,10 @@
 # Note: I copied two functions, closure and clr, from skbio.stats.composition
 # to this file since I had issues installing skbio on Windows.
 
+import gzip
 import math
 import os
 import random
-import re
 
 import numpy as np
 import pandas as pd
@@ -170,6 +170,76 @@ def read_seqs(data_dir, filename_end='trimmed.fq', degen=0, cutoff=0.0,
     return seqs
 
 
+def read_in_vivo_seqs(data_dir, hgRNA_dict):
+    """Read R1 fastq files in subdirectories in data_dir. Used for in vivo data
+    only. Looks for sequences in between hgRNA sequence and "GTGGGGTTAGA" site.
+
+    Parameters
+    ----------
+    data_dir : str
+        Filepath to folder which contains subfolders which each have an R1
+        fastq file. read_in_vivo_seqs loops through these subfolders to find
+        these files.
+    hgRNA_dict : dict
+        Keys are hgRNA string codes (e.g. 'A21') and values are hgRNA sequence.
+
+    Returns
+    -------
+    seqs : dict
+        Key is directory (condition) name, value is a list of further
+        processed sequences.
+    hgRNAs : dict
+        Key is directory (condition) name, value is list of hgRNA codes.
+
+    """
+    seqs = {}
+    hgRNAs = {}
+
+    for fastq_dir in os.listdir(data_dir):
+
+        for fastq_filename in os.listdir(os.path.join(data_dir, fastq_dir)):
+
+            if fastq_filename.endswith('R1_001.fastq.gz'):
+                n_seqs = 0
+                n_cut = 0
+                lengths = []
+                condition_name = fastq_filename.replace('_L001_R1_001.fastq.gz', '')
+                seqs[condition_name] = []
+                hgRNAs[condition_name] = []
+                i = 0
+                with gzip.open(os.path.join(data_dir, fastq_dir, fastq_filename), "rt") as fastq_file:
+                    for fasta in SeqIO.parse(fastq_file, format='fastq'):
+                        seq = str(fasta.seq)
+
+                        for key, hgRNA in hgRNA_dict.items():
+                            hgRNA_index = seq.find(hgRNA)
+
+                            if hgRNA_index != -1:
+                                seq = seq[(hgRNA_index + len(hgRNA)):]
+
+                                # Find GTGGGGTTAGA, cut site is just before that
+                                pos = str(seq).find('GTGGGGTTAGA')
+
+                                if pos == -1:  # i.e. not found
+                                    continue
+                                else:
+                                    seq = seq[:pos]
+                                    if seq:
+                                        i += 1
+                                        hgRNAs[condition_name].append(key)
+                                        seqs[condition_name].append(seq)
+                                        n_cut += 1
+                                        lengths.append(len(seq))
+
+                        n_seqs += 1
+                    print('\nRead', str(n_seqs), 'sequences in', fastq_filename, '...')
+                    print('Number cut and inserted into:', n_cut)
+                    ave_len = round(np.mean(lengths), 2)
+                    print(f'Average length (excluding 0-length seqs): {ave_len}\n')
+
+    return seqs, hgRNAs
+
+
 def cutoff_float(seq, cutoff):
     """Probabilistically cuts off a whole number of bases from the end of a
     sequence.
@@ -282,6 +352,9 @@ def get_norm_len_base_counts(seqs, num_bins=1000):
         counts_dict[directory] = {base: np.zeros(num_bins) for base in bases}
 
         for seq in seqs[directory]:
+
+            if not seq:
+                continue
 
             inds = bin_seq(seq, bins)
 
@@ -465,7 +538,6 @@ def calc_aitchison_distance(pcts_dict):
     get_total_base_percents
 
     """
-
     total_counts = {}
     bases = ['A', 'C', 'G', 'T']
 
@@ -479,7 +551,10 @@ def calc_aitchison_distance(pcts_dict):
         clr_data[condition] = {}
         clr_matrix = clr(total_counts[condition])
         for i, base in enumerate(bases):
-            clr_data[condition][base] = clr_matrix[i]  # changed from [:, i]
+            if clr_matrix.ndim == 1:
+                clr_data[condition][base] = clr_matrix[i]  # changed from [i]
+            else:
+                clr_data[condition][base] = clr_matrix[:, i]
 
     return clr_data
 
@@ -757,7 +832,7 @@ def calc_signal(data, zero_control_conds, one_control_conds,
         be labeled as the one-signal control. Used for signal calculation.
     zero_control_name : str (default: '0 Control')
         The name of the 0 control in the 'Condition' column of data.
-    one_control_name : str (default: '0 Control')
+    one_control_name : str (default: '1 Control')
         The name of the 1 control in the 'Condition' column of data.
 
     Returns
@@ -1084,11 +1159,12 @@ def calc_switch_bins(averages, data_df, mode='01'):
 
     """
 
+    averages = averages.copy()
     directories = list(averages.Directory)
     switch_bin_col = []
 
     for directory in directories:
-        sub_data_df = data_df[data_df.Directory == directory]
+        sub_data_df = data_df.loc[data_df.Directory == directory]
         signals = np.array(sub_data_df['Signal'])
 
         switch_bin = calc_switch_bin(signals, mode=mode)
@@ -1227,7 +1303,7 @@ def calc_switch_time_w_rates(switch_bins, num_bins, t_expt, r_start, r_end):
 
     """
 
-    alpha = r_start / r_end
+    alpha = r_end / r_start
 
     num = alpha * t_expt
     denom = ((num_bins / switch_bins) + alpha - 1)

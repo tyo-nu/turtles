@@ -3,25 +3,17 @@ TURTLES: Time-sensitive Untemplated Recording using TdT for Local Environmental 
 
 ### Paper
 
-This repository provides all the code and notebooks used in [this paper](https://www.biorxiv.org/content/10.1101/634790v3), 
-currently on bioRxiv.
+This repository provides all the code and notebooks used in [this paper](https://pubs.acs.org/doi/full/10.1021/jacs.1c07331).
 
 **Title**: Recording temporal data onto DNA with minutes resolution
 
-**Abstract**: Recording biological signals can be difficult in three-dimensional matrices, such as
-tissue. We present a DNA polymerase-based strategy that records temporal biosignals locally onto DNA to be read out
-later, which could obviate the need to extract information from tissue on the fly. We use a template-independent DNA polymerase, 
-terminal deoxynucleotidyl transferase (TdT) that probabilistically adds dNTPs to single- stranded DNA (ssDNA) substrates without a 
-template. We show that in vitro, the dNTP- incorporation preference of TdT changes with the presence of Co2+, Ca2+, Zn2+ and 
-temperature. Extracting the signal profile over time is possible by examining the dNTP incorporation preference along the length of 
-synthesized ssDNA strands like a molecular ticker tape. We call this TdT-based untemplated recording of temporal local
-environmental signals (TURTLES). We show that we can determine the time of Co2+ addition to within two minutes over a 
-60-minute period. Further, TURTLES has the capability to record multiple fluctuations. We can estimate the rise and fall of an 
-input Co2+ pulse to within three minutes. TURTLES has at least 200-fold better temporal resolution than all previous DNA-based 
-recording techniques.
+**Abstract**: Employing DNA as a high-density data storage medium has paved the way for next-generation digital storage and biosensing technologies. However, the multipart architecture of current DNA-based recording techniques renders them inherently slow and incapable of recording fluctuating signals with subhour frequencies. To address this limitation, we developed a simplified system employing a single enzyme, terminal deoxynucleotidyl transferase (TdT), to transduce environmental signals into DNA. TdT adds nucleotides to the 3′-ends of single-stranded DNA (ssDNA) in a template-independent manner, selecting bases according to inherent preferences and environmental conditions. By characterizing TdT nucleotide selectivity under different conditions, we show that TdT can encode various physiologically relevant signals such as Co2+, Ca2+, and Zn2+ concentrations and temperature changes in vitro. Further, by considering the average rate of nucleotide incorporation, we show that the resulting ssDNA functions as a molecular ticker tape. With this method we accurately encode a temporal record of fluctuations in Co2+ concentration to within 1 min over a 60 min period. Finally, we engineer TdT to allosterically turn off in the presence of a physiologically relevant concentration of calcium. We use this engineered TdT in concert with a reference TdT to develop a two-polymerase system capable of recording a single-step change in the Ca2+ signal to within 1 min over a 60 min period. This work expands the repertoire of DNA-based recording techniques by developing a novel DNA synthesis-based system that can record temporal environmental signals into DNA with a resolution of minutes.
 
 ### Cite
-Bhan, N. J. et al. Recording temporal data onto DNA with minutes resolution. bioRxiv 634790 (2019). doi:10.1101/634790
+Recording Temporal Signals with Minutes Resolution Using Enzymatic DNA Synthesis.
+Namita Bhan, Alec Callisto, Jonathan Strutz, Joshua Glaser, Reza Kalhor, Edward S. Boyden, George Church, Konrad Kording, and Keith E. J. Tyo
+Journal of the American Chemical Society 2021 143 (40), 16630-16640
+DOI: 10.1021/jacs.1c07331
 
 ### Getting Started
 

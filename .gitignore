@@ -10,3 +10,10 @@ Notebooks/.ipynb_checkpoints
 
 # Older functions and methods that aren't in source control at all
 turtles_utils_old.py
+
+# Notebooks not used in manuscript
+Figure_Supp_S9b_lax.ipynb
+
+# Miscellaneous figure files
+figures.zip
+*.svg
